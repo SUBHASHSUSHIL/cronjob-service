@@ -1,0 +1,74 @@
+#. Ye Cronjob 3 months baad ke data delete kar dega...
+//Service.....
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace FerreroIOT.API.Services
+{
+    public class DeleteOldRecordsService : BackgroundService
+    {
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILogger<DeleteOldRecordsService> _logger;
+
+        public DeleteOldRecordsService(IServiceScopeFactory serviceScopeFactory, ILogger<DeleteOldRecordsService> logger)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _logger = logger;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var now = DateTime.UtcNow;
+
+                // Check if current time is midnight (00:00 UTC)
+                if (now.Hour == 0 && now.Minute == 0)
+                {
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var dbContext = scope.ServiceProvider.GetRequiredService<dbAjeeviIotContext>();
+
+                        try
+                        {
+                            // Set the date threshold to 3 months back
+                            var dateThreshold = DateTime.UtcNow.AddMonths(-3);
+
+                            // Filter records older than 3 months
+                            var recordsToDelete = dbContext.SensorLogDetails
+                                .Where(record => record.Tdate < dateThreshold);
+
+                            dbContext.SensorLogDetails.RemoveRange(recordsToDelete);
+                            await dbContext.SaveChangesAsync();
+
+                            _logger.LogInformation("Old records deleted successfully at midnight.");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"Error in deleting old records: {ex.Message}");
+                        }
+                    }
+
+                    // Wait for 24 hours before the next midnight run
+                    await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                }
+                else
+                {
+                    // Check every minute if it's midnight
+                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                }
+            }
+        }
+    }
+}
+------------------------------------------------------------------------------------------------------------
+#. Program.cs---------------
+// Register the DeleteOldRecordsService as a hosted service
+builder.Services.AddHostedService<DeleteOldRecordsService>();
+
+var app = builder.Build();
+
+
