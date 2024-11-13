@@ -1,0 +1,82 @@
+#. Cronjob Service:-
+=> 
+using FerreroIOT.Models;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace FerreroIOT.SERVICES
+{
+    public class DeleteOldRecordsCronjobService : IHostedService
+    {
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ILogger<DeleteOldRecordsCronjobService> _logger;
+
+        public DeleteOldRecordsCronjobService(IServiceScopeFactory serviceScopeFactory, ILogger<DeleteOldRecordsCronjobService> logger)
+        {
+            _serviceScopeFactory = serviceScopeFactory;
+            _logger = logger;
+        }
+
+        public async Task StartAsync(CancellationToken cancellationToken)
+        {
+            await ExecuteAsync(cancellationToken);
+        }
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+        }
+
+
+        public async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var now = DateTime.Now;
+
+                if (now.Hour == 0 && now.Minute == 0)
+                {
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var dbContext = scope.ServiceProvider.GetRequiredService<MonIOTContext>();
+
+                        try
+                        {
+                            var dateThreshold = DateTime.Now.AddMonths(-3);
+
+                            var recordsToDelete = dbContext.DeviceTransaction
+                                .Where(record => record.Tdate < dateThreshold);
+
+                            dbContext.DeviceTransaction.RemoveRange(recordsToDelete);
+                            await dbContext.SaveChangesAsync();
+
+                            _logger.LogInformation("Old records deleted successfully at Night.");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError($"Error in deleting old records: {ex.Message}");
+                        }
+                    }
+
+                    await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                }
+                else
+                {
+                    await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                }
+            }
+        }
+    }
+}
+
+#. Startup.cs:-
+=>
+ services.AddHostedService<DeleteOldRecordsCronjobService>();
+ services.AddLogging(configure => configure.AddConsole());
